@@ -1,3 +1,7 @@
+# vscode 自动生成目录
+.vscode/
+# 可执行文件生成目录
+output/
 # Prerequisites
 *.d
 

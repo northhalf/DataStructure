@@ -1,0 +1,11 @@
+# 代码风格为:
+# if(a > 1){
+#     ;
+# }
+# class A{
+# private:
+# };
+BasedOnStyle: Google
+AlignAfterOpenBracket: BlockIndent
+IndentWidth: 4  # 缩进为4个字符
+AccessModifierOffset: -4  # private,public等向前四格
