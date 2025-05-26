@@ -8,7 +8,6 @@
 #define MY_ALLOCATOR_HPP 2
 
 #include <cstddef>
-#include <stdexcept>
 #include <type_traits>
 
 namespace user {
@@ -30,6 +29,8 @@ public:
     using difference_type = std::ptrdiff_t;
     // 容器移动赋值时分配器跟随移动
     using propagate_on_container_move_assignment = std::true_type;
+    // 两个内存分配器总是相同的
+    using is_always_equal = std::true_type;
 
     Allocator() = default;
     virtual ~Allocator() = default;
