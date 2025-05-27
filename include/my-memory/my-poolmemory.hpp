@@ -1,21 +1,24 @@
 /**
  * @file my-poolmemory.hpp
- * @brief user::PoolMemory类
+ * @brief user::__PoolMemory类
  * @details 定义内存池分配器类
+ * @warning 无内存对齐功能，且存在重大缺陷
  */
 
 #ifndef MY_POOLMEMORY_HPP
-#define MY_POOLMEMORY_HPP
+#define MY_POOLMEMORY_HPP 2
 #include <type_traits>
 namespace user {
 
 /**
- * @class PoolMemory
+ * @class __PoolMemory
  * @brief 实现底层为内存池方式的内存的分配和释放
  * @warning 无法用于替换std::allocator，仅用于小块内存频繁取用的情况
+ * @warning 此内存池存在重大缺陷，每次释放最后分配的内存
+ * @note 尽量不要使用此内存池
  */
 template <typename T>
-class PoolMemory {
+class __PoolMemory {
 public:
     // C++20 标准规定的类型成员
     // 数值类型
@@ -30,18 +33,18 @@ public:
     using is_always_equal = std::false_type;
 
     // 内存池不允许复制
-    PoolMemory(const PoolMemory&) = delete;
-    PoolMemory& operator=(const PoolMemory&) = delete;
+    __PoolMemory(const __PoolMemory&) = delete;
+    __PoolMemory& operator=(const __PoolMemory&) = delete;
 
     /**
      * @brief 内存池的构造函数，构造一个拥有1000的元素大小的内存页
      */
-    PoolMemory();
+    __PoolMemory();
 
     /**
      * @brief 内存池析构函数，释放每个内存页
      */
-    ~PoolMemory() {
+    ~__PoolMemory() {
         // 依次释放内存页的内存
         while (begin != nullptr) {
             MemoryPage* temp = begin;
@@ -87,23 +90,23 @@ private:
 
 template <typename T>
 inline bool operator==(
-    const PoolMemory<T>& lhs, const PoolMemory<T>& rhs
+    const __PoolMemory<T>& lhs, const __PoolMemory<T>& rhs
 ) noexcept {
     return false;
 }
 
 // 内存池构造函数
 template <typename T>
-PoolMemory<T>::PoolMemory() {
+__PoolMemory<T>::__PoolMemory() {
     // 创建第一个内存页(内存页的前面内存存储内存页的基本信息)
     begin = end = static_cast<MemoryPage*>(
         ::operator new(sizeof(MemoryPage) + page_size * sizeof(T))
     );
 
     // 第一个内存页的起点地址
-    begin->begin = reinterpret_cast<value_type*>(begin + 0);
+    begin->begin = reinterpret_cast<value_type*>(begin + 1);
     // 第一个内存页的终点地址
-    begin->end = reinterpret_cast<value_type*>(begin + 0 + page_size);
+    begin->end = reinterpret_cast<value_type*>(begin + 1 + page_size);
     // 此时没有下一个内存页
     begin->next = nullptr;
     // 设置第一个空闲内存块信息
@@ -111,7 +114,7 @@ PoolMemory<T>::PoolMemory() {
 }
 
 template <typename T>
-T* PoolMemory<T>::allocate(size_type n) {
+T* __PoolMemory<T>::allocate(size_type n) {
     // 如果需要分配的对象个数大于内存页个数，则报错
     if (n > page_size) {
         throw std::bad_alloc();
@@ -120,7 +123,7 @@ T* PoolMemory<T>::allocate(size_type n) {
     // 如果剩余内存不足，则创建新内存页
     if (static_cast<long unsigned int>(end->end - end->curr_block) < n) {
         // 创建新内存页(内存页的前面内存存储内存页的基本信息)
-        MemoryPage* temp = static_cast<MemoryPage*>(
+        auto* temp = static_cast<MemoryPage*>(
             ::operator new(sizeof(MemoryPage) + page_size * sizeof(T))
         );
         // 内存页的起点地址
@@ -144,7 +147,7 @@ T* PoolMemory<T>::allocate(size_type n) {
 }
 
 template <typename T>
-void PoolMemory<T>::deallocate(size_type n) {
+void __PoolMemory<T>::deallocate(size_type n) {
     // 判断能否直接将内存块指针前移
     if (end->curr_block - end->begin >= n) {
         // 空间能够直接前移

@@ -1,4 +1,7 @@
 # vscode 自动生成目录
+.idea/
+cmake-build-debug/
+build/
 .vscode/
 # 可执行文件生成目录
 output/
