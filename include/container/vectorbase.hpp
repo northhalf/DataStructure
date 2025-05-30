@@ -55,7 +55,18 @@ struct VectorBase {
     }
 
     VectorBase() = default;
+    /**
+     * @brief 根据元素个数分配内存
+     * @param n 需要分配内存的元素个数
+     */
+    constexpr explicit VectorBase(const size_t n) { M_create_storage(n); }
 
+    /**
+     * @brief 析构函数，释放所有分配的内存
+     */
+    constexpr ~VectorBase() noexcept {
+        M_deallocate(M_start, M_end_of_shorage - M_start);
+    }
 
     /**
      * @brief 分配指定元素个数的内存
@@ -73,7 +84,7 @@ struct VectorBase {
      * @param n 需要释放的对象个数
      */
     constexpr void M_deallocate(pointer p, size_t n) {
-        Tr::deallocate(alloc,p,n);
+        Tr::deallocate(alloc, p, n);
     }
 
     /**
@@ -82,7 +93,7 @@ struct VectorBase {
      */
     constexpr void M_create_storage(size_t n) {
         // 指向分配内存的首地址
-        this->M_start = this->Tr::allocate(alloc, n);
+        this->M_start = Tr::allocate(alloc, n);
         // 指向最后的有效地址(初始无值，所以和首地址一致)
         this->M_finish = this->M_start;
         // 指向分配的内存的末地址

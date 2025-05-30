@@ -25,5 +25,19 @@ concept IsAllocator = requires(Tp alloc) {
     } -> std::same_as<void>;
 };
 
+/**
+ * @concept SameTypeAlloc
+ * @brief 判断数值类型是否与分配器匹配
+*/
+template<typename Tp, typename Alloc>
+concept SameTypeAlloc = std::is_same_v<Tp, typename Alloc::value_type>;
+
+/**
+ * @concept NotConstVolatile
+ * @brief 非const和volatile类型
+*/
+template<typename Tp>
+concept NotConstVolatile = std::is_same_v<typename std::remove_cv_t<Tp>, Tp>;
+
 }  // namespace user
 #endif  // MYCONCEPT_HPP
