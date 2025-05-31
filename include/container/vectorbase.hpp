@@ -54,7 +54,19 @@ struct VectorBase {
         vb.M_copy_data(tmp);
     }
 
+    /*
+     * @brief 默认构造函数
+     */
     VectorBase() = default;
+    /*
+     * @brief 移动构造函数
+     */
+    constexpr VectorBase(VectorBase&& other) noexcept
+        : M_start(other.M_start),
+          M_finish(other.M_finish),
+          M_end_of_shorage(other.M_end_of_shorage) {
+        other.M_start = other.M_finish = other.M_end_of_shorage = pointer{};
+    };
     /**
      * @brief 根据元素个数分配内存
      * @param n 需要分配内存的元素个数
@@ -84,7 +96,9 @@ struct VectorBase {
      * @param n 需要释放的对象个数
      */
     constexpr void M_deallocate(pointer p, size_t n) {
-        Tr::deallocate(alloc, p, n);
+        if (p != nullptr) {
+            Tr::deallocate(alloc, p, n);
+        }
     }
 
     /**
