@@ -300,15 +300,30 @@ protected:
                 this->alloc, new_start + elems_before,
                 std::forward<Args>(args)...
             );
-            // 将原来内存区域的值移动到新区域
-            new_finish =
-                std::uninitialized_move(old_start, position, new_start);
-            ++new_finish;
-            new_finish =
-                std::uninitialized_move(position, old_finish, new_finish);
+            // 根据是否可移动采取移动或者构造函数
+            if constexpr (std::is_move_constructible_v<Tp>) {
+                // 将原来内存区域的值移动到新区域
+                new_finish =
+                    std::uninitialized_move(old_start, position, new_start);
+                ++new_finish;
+                new_finish =
+                    std::uninitialized_move(position, old_finish, new_finish);
+            } else if constexpr (std::is_copy_constructible_v<Tp>) {
+                // 如果不可移动但是可以复制
+                new_finish =
+                    std::uninitialized_copy(old_start, position, new_start);
+                ++new_finish;
+                new_finish =
+                    std::uninitialized_copy(position, old_finish, new_finish);
+            } else {
+                // 既不可移动也不可复制，则抛出异常
+                throw std::runtime_error(
+                    "M_realloc_insert: The type of the value is unable to copy or move"
+                );
+            }
         } catch (...) {  // 如果移动对象出现了错误
-            // 析构新构造的对象
-            Alloc_traits::destroy(this->alloc, new_start + elems_before);
+            // 析构当前已经插入的对象
+            std::destroy(new_start, new_finish);
             // 将新分配的内存释放
             this->M_deallocate(new_start, len);
             throw;
