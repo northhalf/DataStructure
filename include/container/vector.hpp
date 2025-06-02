@@ -47,11 +47,6 @@ public:
     using difference_type = std::ptrdiff_t;    // 内存地址差值计算类型
     using allocator_type = Alloc;              // 分配器类型
 
-protected:
-    // using Base::M_allocate;
-    // using Base::M_deallocate
-
-public:
     Vector() = default;
 
     /**
@@ -88,7 +83,7 @@ private:
     constexpr Vector(Vector&& rv, std::true_type) noexcept
         : Base(std::move(rv)) {}
     /**
-     * @brief 当分配器不是总相同的时候复制其值
+     * @brief 当分配器不是总相同的时候移动其值
      * @param rv 右值user::Vector
      */
     constexpr Vector(Vector&& rv, std::false_type) {
@@ -96,6 +91,7 @@ private:
             this->M_create_storage(rv.size());
             this->M_finish =
                 std::uninitialized_move(rv.begin(), rv.end(), this->begin());
+            // 将原来的对象清空
             rv.clear();
         }
     }
@@ -116,7 +112,9 @@ public:
      * @param l 初始化列表
      */
     constexpr Vector(std::initializer_list<value_type> l) {
-        M_range_initialize(l.begin(), l.end());
+        M_range_initialize(
+            l.begin(), l.end(), std::random_access_iterator_tag{}
+        );
     }
     /**
      * @brief 析构函数，析构有效范围内的元素
@@ -132,6 +130,7 @@ public:
     [[nodiscard]] constexpr iterator begin() noexcept {
         return static_cast<iterator>(this->M_start);
     }
+
     /**
      * @brief 获取第一个元素的常量迭代器
      * @return 指向第一个元素的只读迭代器
@@ -139,6 +138,7 @@ public:
     [[nodiscard]] constexpr const_iterator begin() const noexcept {
         return static_cast<const_iterator>(this->M_start);
     }
+
     /**
      * @brief 获取指向最后一个元素后面的迭代其
      * @return 指向最后一个元素后面的迭代器
@@ -147,6 +147,7 @@ public:
     [[nodiscard]] constexpr iterator end() noexcept {
         return static_cast<iterator>(this->M_finish);
     }
+
     /**
      * @brief 获取最后一个元素后面的只读迭代器
      * @return 获取指向最后一个元素后面的只读迭代器
@@ -154,11 +155,41 @@ public:
     [[nodiscard]] constexpr const_iterator end() const noexcept {
         return static_cast<const_iterator>(this->M_finish);
     }
+
+    /**
+     * @brief 获取第一个元素的引用
+     * @return 第一个元素的引用
+     */
+    [[nodiscard]] constexpr reference front() noexcept { return *begin(); }
+
+    /**
+     * @brief 获取第一个元素的常量引用
+     * @return 第一个元素的常量引用
+     */
+    [[nodiscard]] constexpr const_reference front() const noexcept {
+        return *begin();
+    }
+
+    /**
+     * @brief 获取最后一个元素的引用
+     * @return 最后一个元素的引用
+     */
+    [[nodiscard]] constexpr reference back() noexcept { return *(end() - 1); }
+
+    /**
+     * @brief 获取最后一个元素的常量引用
+     * @return 最后一个元素的常量引用
+     */
+    [[nodiscard]] constexpr const_reference back() const noexcept {
+        return *(end() - 1);
+    }
+
     /**
      * @brief 获取容器此时状态是否为空
      * @return 如果容器为空，返回true，否则返回false
      */
     [[nodiscard]] constexpr bool empty() noexcept { return begin() == end(); }
+
     /**
      * @brief 获取容器内的元素个数
      * @return user::Vector中包含的元素个数
@@ -172,6 +203,33 @@ public:
      * @brief 清除容器内的所有元素
      */
     constexpr void clear() noexcept { M_erase_at_end(this->M_start); }
+
+    /**
+     * @brief 将新元素插入到容器末尾，传入元素的构造函数所需的参数
+     * @tparam Args 模板参数包
+     * @param args 函数参数包
+     * @return 新添加元素后的最后一个元素的引用
+     */
+    template <typename... Args>
+    constexpr reference emplace_back(Args&&... args) {
+        if (this->M_finish != this->M_end_of_shorage) {
+            Alloc_traits::construct(
+                this->alloc, this->M_finish, std::forward<Args>(args)...
+            );
+            ++this->M_finish;
+        } else {
+            this->M_realloc_insert(end(), std::forward<Args>(args)...);
+        }
+        return back();
+    }
+
+    /**
+     * @brief 获取当前容器的理论最大容量
+     * @return 当前容器理论容量上限
+     */
+    [[nodiscard]] constexpr size_type max_size() const noexcept {
+        return S_max_size();
+    }
 
 protected:
     /**
@@ -193,18 +251,22 @@ protected:
         }
     }
     /**
-     * @brief 实现范围内的初始化
+     * @brief 实现范围内的初始化，并实现了内存的分配
+     * @note 此函数要求迭代器至少为前向迭代器
      * @tparam Iterator 迭代器类型
      * @param first 指向开始范围的迭代器
      * @param last 指向结束范围的迭代器
      */
-    template <std::input_iterator Iterator>
-    constexpr void M_range_initialize(Iterator first, Iterator last) {
+    template <std::forward_iterator Iterator>
+    constexpr void M_range_initialize(
+        Iterator first, Iterator last, std::forward_iterator_tag
+    ) {
         const size_type n = std::distance(first, last);
         this->M_start = this->M_allocate(S_check_init_len(n));
         this->M_end_of_shorage = this->M_start + n;
         this->M_finish = std::uninitialized_copy(first, last, this->M_start);
     }
+
     /**
      * @brief 根据传入的值进行初始化
      * @param n 需要初始化的元素个数
@@ -214,6 +276,67 @@ protected:
         const size_type n, const value_type& value
     ) {
         this->M_finish = std::uninitialized_fill_n(this->M_start, n, value);
+    }
+    /**
+     * @brief 实现指定位置插入对象，并重新内存分配
+     * @tparam Args 模板参数包，需要构造的对象的构造函数参数类型
+     * @param position 插入元素位置
+     * @param args 函数参数包，构造对象的构造函数参数
+     */
+    template <typename... Args>
+    constexpr void M_realloc_insert(iterator position, Args&&... args) {
+        // 获取此时新分配内存存储的元素总个数
+        const size_type len =
+            M_check_len(static_cast<size_type>(1), "Vector::M_realloc_insert");
+        pointer old_start = this->M_start;
+        pointer old_finish = this->M_finish;
+        // 这个位置前有多少元素
+        const size_type elems_before = position - begin();
+        pointer new_start = this->M_allocate(len);
+        pointer new_finish = new_start;
+        try {
+            // 在插入位置构造新元素
+            Alloc_traits::construct(
+                this->alloc, new_start + elems_before,
+                std::forward<Args>(args)...
+            );
+            // 将原来内存区域的值移动到新区域
+            new_finish =
+                std::uninitialized_move(old_start, position, new_start);
+            ++new_finish;
+            new_finish =
+                std::uninitialized_move(position, old_finish, new_finish);
+        } catch (...) {  // 如果移动对象出现了错误
+            // 析构新构造的对象
+            Alloc_traits::destroy(this->alloc, new_start + elems_before);
+            // 将新分配的内存释放
+            this->M_deallocate(new_start, len);
+            throw;
+        }
+        // 释放原来分配的内存区域
+        this->M_deallocate(old_start, this->M_end_of_shorage - old_start);
+        // 重设三个指针
+        this->M_start = new_start;
+        this->M_finish = new_finish;
+        this->M_end_of_shorage = new_start + len;
+    }
+
+    /**
+     * @brief 用于检测需要新分配的元素数量是否处于正常范围内
+     * @param n 需要新分配的元素个数
+     * @param s 调用函数名以及其他信息
+     * @throw std::length_error 最大分配元素个数不足以分配这个元素
+     * @return 应当分配内存的元素个数
+     */
+    constexpr size_type M_check_len(size_type n, const char* s) const {
+        // 如果剩下的元素空间不足，则抛出异常
+        if (max_size() - size() < n) {
+            throw std::length_error(s);
+        }
+        // 计算需要分配的内存空间，如果两倍空间不够，则len+n分配内存空间
+        const size_type len = size() + std::max(size(), n);
+        // 如果出现了溢出等情况则分配最大空间
+        return (len < size() || len > max_size()) ? max_size() : len;
     }
     /**
      * @brief 判断初始长度是否可行
@@ -244,18 +367,20 @@ protected:
     }
 };
 /**
- * @brief 重载流插入运算符实现输出容器内的元素
+ * @brief 重载流插入运算符实现输出容器内的元素，默认5个一行
  * @tparam Tp 可插入类型
+ * @tparam num_ele_one_line 一行输出的元素个数，默认为5
  * @param os 输出流
  * @param vec 要输出的向量
  * @return os的引用
  */
-template <IsInsertable Tp>
+template <IsInsertable Tp, size_t num_ele_one_line = 5>
 std::ostream& operator<<(std::ostream& os, Vector<Tp>& vec) {
     size_t count = 0;
     for (auto& it : vec) {
         os << it << " ";
-        if (count == 5) {
+        count++;
+        if (count == num_ele_one_line) {
             os << std::endl;
             count = 0;
         }
