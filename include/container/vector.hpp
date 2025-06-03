@@ -107,6 +107,7 @@ public:
         )  // 判断分配器是否总是相同
     )))
         : Vector(std::move(rv), typename Alloc_traits::is_always_equal{}) {}
+
     /**
      * @brief 根据初始化列表初始化user::Vector
      * @param l 初始化列表
@@ -116,6 +117,20 @@ public:
             l.begin(), l.end(), std::random_access_iterator_tag{}
         );
     }
+
+    /**
+     * @brief 实现根据迭代器范围进行构造
+     * @tparam InputIterator 迭代器至少为输入迭代器
+     * @param first 指向第一个元素的迭代器
+     * @param last 指向最后一个元素的迭代器
+     */
+    template <std::input_iterator InputIterator>
+    constexpr Vector(InputIterator first, InputIterator last) {
+        using iterator_type =
+            typename std::iterator_traits<InputIterator>::iterator_category;
+        M_range_initialize(first, last, iterator_type{});
+    }
+
     /**
      * @brief 析构函数，析构有效范围内的元素
      */
@@ -253,7 +268,7 @@ protected:
     /**
      * @brief 实现范围内的初始化，并实现了内存的分配
      * @note 此函数要求迭代器至少为前向迭代器
-     * @tparam Iterator 迭代器类型
+     * @tparam Iterator 至少为迭代器
      * @param first 指向开始范围的迭代器
      * @param last 指向结束范围的迭代器
      */
@@ -265,6 +280,28 @@ protected:
         this->M_start = this->M_allocate(S_check_init_len(n));
         this->M_end_of_shorage = this->M_start + n;
         this->M_finish = std::uninitialized_copy(first, last, this->M_start);
+    }
+
+    /**
+     * @brief 实现传入输入迭代器的初始化操作(输入迭代器只可访问一次)
+     * @tparam Iterator 输入迭代器
+     * @param first 指向第一个元素的迭代器
+     * @param last 指向最后一个元素的后一个元素的迭代器
+     */
+    template <std::input_iterator Iterator>
+    constexpr void M_range_initialize(
+        Iterator first, Iterator last, std::input_iterator_tag
+    ) {
+        try {
+            // 依次将每个解引用传入构造函数
+            for (; first != last; ++first) {
+                this->emplace_back(*first);
+            }
+        } catch (...) {
+            // 如果捕获异常则清除所有已经构造的函数
+            this->clear();
+            throw;
+        }
     }
 
     /**
@@ -318,7 +355,8 @@ protected:
             } else {
                 // 既不可移动也不可复制，则抛出异常
                 throw std::runtime_error(
-                    "M_realloc_insert: The type of the value is unable to copy or move"
+                    "M_realloc_insert: The type of the value is unable to copy "
+                    "or move"
                 );
             }
         } catch (...) {  // 如果移动对象出现了错误
@@ -393,7 +431,7 @@ template <IsInsertable Tp, size_t num_ele_one_line = 5>
 std::ostream& operator<<(std::ostream& os, Vector<Tp>& vec) {
     size_t count = 0;
     for (auto& it : vec) {
-        os << it << " ";
+        os << it << " " ;
         count++;
         if (count == num_ele_one_line) {
             os << std::endl;
