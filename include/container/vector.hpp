@@ -138,6 +138,70 @@ public:
         std::destroy(this->M_start, this->M_finish);
     }
 
+    constexpr Vector& operator=(const Vector& other) {
+        using pocca =
+            typename Alloc_traits::propagate_on_container_copy_assignment::type;
+        using is_always_equal = typename Alloc_traits::is_always_equal;
+        // 如果两个容器是一样的，则直接返回
+        if (std::addressof(other) == this) {
+            return *this;
+        }
+
+        if (pocca::value) {  // 如果需要在传播过程复制赋值
+            if (!is_always_equal::value &&
+                this->M_get_Tp_allocator() != other.M_get_Tp_allocator()) {
+                // 如果分配器间存在差别，并且两个分配器不同，则需要将原来的内存先释放
+                // 新分配器无法释放已经存在的内存
+
+                // 提前将内存释放和析构
+                this->clear();
+                this->M_deallocate(
+                    this->M_start, this->M_end_of_shorage - this->M_start
+                );
+                // 将指针置为空值
+                this->M_start = this->M_finish = this->M_end_of_shorage =
+                    nullptr;
+            }
+            // 分配器替换
+            this->M_get_Tp_allocator() = other.M_get_Tp_allocator();
+        }
+        // 获取另一个容器的元素个数
+        const size_type other_size = other.size();
+
+        // 分为三种情况考虑
+        // 1. 如果另一个容器的元素个数 > 当前容器的最大存储数量
+        // 此时需要重新分配当前容器内存为更大值，并复制元素
+        if (other_size > this->capacity()) {
+            pointer tmp =
+                M_allocate_and_copy(other_size, other.begin(), other.end());
+            std::destroy(this->M_start, this->M_finish);
+            this->M_deallocate(
+                this->M_start, this->M_end_of_shorage - this->M_start
+            );
+            this->M_start = tmp;
+            this->M_end_of_shorage = this->M_start + other_size;
+        } else if (this->size() >= other_size) {
+            // 如果 另一个元素的元素个数 <= 当前容器的元素个数
+            // 将另一个容器复制到当前容器，并将多余的元素析构
+            std::destroy(
+                std::copy(other.begin(), other.end(), this->begin()),
+                this->end()
+            );
+        } else {
+            // 如果 当前容器的元素个数 < 另一个容器的元素个数 < 当前容器的容量
+            // 将容器有的元素赋值为另一个容器的相应元素，剩下的元素进行初始化复制
+            std::copy(
+                this->M_start, this->M_start + this->size(), this->M_start
+            );
+            std::uninitialized_copy(
+                other.M_start + this->size(), other.M_finish, this->M_finish
+            );
+        }
+        // 根据另一个容器的元素个数调整容器最后一个元素的位置
+        this->M_finish = this->M_start + other_size;
+        return *this;
+    }
+
     /**
      * @brief 获取第一个元素的迭代器
      * @return 指向第一个元素的可读写迭代器
@@ -214,6 +278,10 @@ public:
         return static_cast<size_type>(this->M_finish - this->M_start);
     }
 
+    [[nodiscard]] constexpr size_type capacity() const noexcept {
+        return static_cast<size_type>(this->M_end_of_shorage - this->M_start);
+    }
+
     /**
      * @brief 清除容器内的所有元素
      */
@@ -260,7 +328,7 @@ protected:
      * @param pos 开始清除元素的位置
      */
     constexpr void M_erase_at_end(pointer pos) noexcept {
-        if (this->M_finish - pos != nullptr) {
+        if (this->M_finish > pos) {
             std::destroy(pos, this->M_finish);
             this->M_finish = pos;
         }
@@ -300,6 +368,28 @@ protected:
         } catch (...) {
             // 如果捕获异常则清除所有已经构造的函数
             this->clear();
+            throw;
+        }
+    }
+
+    /**
+     * @brief 实现分配内存并复制元素
+     * @tparam ForwardIterator 至少为前向迭代器类型
+     * @param n 需要分配的元素个数
+     * @param first 指向第一个元素的迭代器
+     * @param last 指向最后一个元素的迭代器
+     * @return 指向新的内存区域首地址的指针
+     */
+    template <std::forward_iterator ForwardIterator>
+    constexpr pointer M_allocate_and_copy(
+        size_type n, ForwardIterator first, ForwardIterator last
+    ) {
+        pointer result = this->M_allocate(n);
+        try {
+            std::uninitialized_copy(first, last, result);
+            return result;
+        } catch (...) {
+            this->M_deallocate(result, n);
             throw;
         }
     }
@@ -431,7 +521,7 @@ template <IsInsertable Tp, size_t num_ele_one_line = 5>
 std::ostream& operator<<(std::ostream& os, Vector<Tp>& vec) {
     size_t count = 0;
     for (auto& it : vec) {
-        os << it << " " ;
+        os << it << " ";
         count++;
         if (count == num_ele_one_line) {
             os << std::endl;

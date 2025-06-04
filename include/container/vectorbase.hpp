@@ -55,9 +55,10 @@ struct VectorBase {
     }
 
     /*
-     * @brief 默认构造函数
+     * @brief 默认构造函数，将指针初始化
      */
-    VectorBase() = default;
+    constexpr VectorBase() noexcept
+        : M_start(), M_finish(), M_end_of_shorage() {};
     /*
      * @brief 移动构造函数
      */
@@ -88,6 +89,22 @@ struct VectorBase {
     constexpr pointer M_allocate(size_t n) {
         // 当需要分配的元素个数不为0的时候分配内存
         return n != 0 ? Tr::allocate(alloc, n) : pointer();
+    }
+
+    /**
+     * @brief 获取当前容器的分配器
+     * @return 当前容器的分配器
+     */
+    constexpr Tp_alloc_type& M_get_Tp_allocator() noexcept {
+        return this->alloc;
+    }
+
+    /**
+     * @brief 获取当前容器的分配器
+     * @return 当前容器的分配器
+     */
+    constexpr const Tp_alloc_type& M_get_Tp_allocator() const noexcept {
+        return this->alloc;
     }
 
     /**
