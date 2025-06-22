@@ -1,4 +1,4 @@
-
+/* UTF-8 */
 /**
  * @file vector.hpp
  * @brief 实现自定义的Vector类实现
@@ -11,6 +11,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <small-utility/smallutility.hpp>
 #include <userconcept/myconcept.hpp>
 namespace user {
 
@@ -138,6 +139,11 @@ public:
         std::destroy(this->M_start, this->M_finish);
     }
 
+    /**
+     * @brief 左值引用赋值运算符重载
+     * @param other 另一Vector类型
+     * @return 赋值后的Vector引用
+     */
     constexpr Vector& operator=(const Vector& other) {
         using pocca =
             typename Alloc_traits::propagate_on_container_copy_assignment::type;
@@ -203,6 +209,27 @@ public:
     }
 
     /**
+     * @brief 右值赋值运算符重载
+     * @param other 另一右值Vector
+     * @return 当前Vector的引用
+     */
+    constexpr Vector& operator=(Vector&& other) noexcept {
+        this->M_swap_data(other);
+        return *this;
+    }
+
+    /**
+     * @brief 将容器以n个val进行填充
+     * @param n 填充的元素个数
+     * @param val 填充的元素值
+     * @note 无论容器原来的值是什么，在执行这个方法之后都会
+     * 变为n个val,size()值应为n
+     */
+    constexpr void assign(const size_type n, const value_type& val) {
+        M_fill_assign(n, val);
+    }
+
+    /**
      * @brief 获取第一个元素的迭代器
      * @return 指向第一个元素的可读写迭代器
      */
@@ -230,9 +257,79 @@ public:
     /**
      * @brief 获取最后一个元素后面的只读迭代器
      * @return 获取指向最后一个元素后面的只读迭代器
+     * @warning 对这个迭代器进行更改的行为是未定义的
      */
     [[nodiscard]] constexpr const_iterator end() const noexcept {
         return static_cast<const_iterator>(this->M_finish);
+    }
+
+    /**
+     * @brief 获取第一个反向迭代器(相当于end()的前一个迭代器)
+     * @return 第一个反向迭代器
+     */
+    [[nodiscard]] constexpr reverse_iterator rbegin() noexcept {
+        return static_cast<reverse_iterator>(end());
+    }
+
+    /**
+     * @brief const对象获取第一个const反向迭代器(相当于end()的前一个迭代器)
+     * @return 第一个const反向迭代器
+     */
+    [[nodiscard]] constexpr const_reverse_iterator rbegin() const noexcept {
+        return static_cast<const_reverse_iterator>(end());
+    }
+
+    /**
+     * @brief 获取最后一个元素的后一个反向迭代器(相当于begin()的前一个迭代器)
+     * @return 最后一个元素的后一个反向迭代器
+     * @warning 对这个迭代器进行更改的行为是未定义的
+     */
+    [[nodiscard]] constexpr reverse_iterator rend() noexcept {
+        return static_cast<reverse_iterator>(begin());
+    }
+
+    /**
+     * @brief
+     * 获取最后一个元素的后一个const反向迭代器(相当于begin()的前一个迭代器)
+     * @return 最后一个元素的后一个const反向迭代器
+     * @warning 对这个迭代器进行更改的行为是未定义的
+     */
+    [[nodiscard]] constexpr const_reverse_iterator rend() const noexcept {
+        return static_cast<const_reverse_iterator>(begin());
+    }
+
+    /**
+     * @brief 获取第一个const迭代器
+     * @return 第一个const迭代器
+     */
+    [[nodiscard]] constexpr const_iterator cbegin() const noexcept {
+        return static_cast<const_iterator>(begin());
+    }
+
+    /**
+     * @brief 获取最后一个元素的后一个const迭代器
+     * @return 最后一个元素的后一个const迭代器
+     * @warning 对其的访问是未定义的
+     */
+    [[nodiscard]] constexpr const_iterator cend() const noexcept {
+        return static_cast<const_iterator>(end());
+    }
+
+    /**
+     * @brief 获取第一个const反向迭代器
+     * @return 第一个const反向迭代器
+     */
+    [[nodiscard]] constexpr const_reverse_iterator crbegin() const noexcept {
+        return static_cast<const_reverse_iterator>(end());
+    }
+
+    /**
+     * @brief 获取最后一个元素的后一个const反向迭代器
+     * @return 最后一个元素的后一个const反向迭代器
+     * @warning 对其的访问是未定义的
+     */
+    [[nodiscard]] constexpr const_reverse_iterator crend() const noexcept {
+        return static_cast<const_reverse_iterator>(begin());
     }
 
     /**
@@ -278,6 +375,10 @@ public:
         return static_cast<size_type>(this->M_finish - this->M_start);
     }
 
+    /**
+     * @brief 获取当前容器的容量
+     * @return 当前容器的容量
+     */
     [[nodiscard]] constexpr size_type capacity() const noexcept {
         return static_cast<size_type>(this->M_end_of_shorage - this->M_start);
     }
@@ -288,6 +389,21 @@ public:
     constexpr void clear() noexcept { M_erase_at_end(this->M_start); }
 
     /**
+     * @brief 调整容器大小
+     * @param new_size 新的容器大小
+     */
+    constexpr void resize(size_type new_size) {
+        // 判断新的大小和当前大小的关系
+        if (new_size > size()) {
+            // 比当前大小大则在后面填充默认构造元素
+            M_default_append(new_size - size());
+        } else if (new_size < size()) {
+            // 比当前大小 小 在删除多余元素
+            M_erase_at_end(this->M_start + new_size);
+        }
+    }
+
+    /**
      * @brief 将新元素插入到容器末尾，传入元素的构造函数所需的参数
      * @tparam Args 模板参数包
      * @param args 函数参数包
@@ -295,12 +411,15 @@ public:
      */
     template <typename... Args>
     constexpr reference emplace_back(Args&&... args) {
-        if (this->M_finish != this->M_end_of_shorage) {
+        if (this->M_finish !=
+            this->M_end_of_shorage) {  // 判断是否还可以容纳一个元素
+            // 如果可以再容纳一个元素，则直接在最后构造相应元素
             Alloc_traits::construct(
                 this->alloc, this->M_finish, std::forward<Args>(args)...
             );
             ++this->M_finish;
         } else {
+            // 无法再容纳一个元素，重新分配空间并插入到最后
             this->M_realloc_insert(end(), std::forward<Args>(args)...);
         }
         return back();
@@ -333,6 +452,62 @@ protected:
             this->M_finish = pos;
         }
     }
+
+    /**
+     * @brief 在容器末尾添加n个初始元素
+     * @param n 需要添加的元素个数
+     */
+    constexpr void M_default_append(size_type n) {
+        if (n == 0) {  // 判断是否需要分配元素
+            return;
+        }
+        // 当前的已有元素个数
+        const size_type nsize = this->size();
+        // 当前的剩余空间
+        size_type navail =
+            static_cast<size_type>(this->M_end_of_shorage - this->M_finish);
+
+        if (navail >= n) {
+            // 如果剩余空间足够分配新元素,则直接在末尾构造
+            this->M_finish =
+                std::uninitialized_default_construct_n(this->M_finish, n);
+        } else {
+            // 保存原来的旧指针
+            pointer old_start = this->M_start;
+            pointer old_finish = this->M_finish;
+
+            // 新的需要分配长度
+            size_type len = M_check_len(n, "Vector::M_default_append");
+            // 指向新内存区域的指针
+            pointer new_start = this->M_allocate(len);
+
+            pointer destroy_from = pointer{};  // 记录析构的开始位置
+            try {
+                // 将后面的区域默认构造
+                std::uninitialized_default_construct_n(new_start + nsize, n);
+                // 析构开始位置
+                destroy_from = new_start + nsize;
+                // 移动或复制填充前面区域
+                move_or_copy(old_start, old_finish, new_start);
+            } catch (...) {
+                // 将后面的默认构造部分析构
+                std::destroy(destroy_from, destroy_from + n);
+                // 将分配的内存区域释放
+                this->M_deallocate(new_start, len);
+                throw;
+            }
+            // 将原来区域析构
+            std::destroy(old_start, old_finish);
+            // 释放原来区域的内存
+            this->M_deallocate(old_start, this->M_end_of_shorage - old_start);
+
+            // 重设指针
+            this->M_start = new_start;
+            this->M_finish = new_start + nsize + n;
+            this->M_end_of_shorage = new_start + len;
+        }
+    }
+
     /**
      * @brief 实现范围内的初始化，并实现了内存的分配
      * @note 此函数要求迭代器至少为前向迭代器
@@ -404,6 +579,31 @@ protected:
     ) {
         this->M_finish = std::uninitialized_fill_n(this->M_start, n, value);
     }
+
+    /**
+     * @brief 以n个val填充容器
+     * @param n 需要填充的元素个数
+     * @param val 需要填充的值
+     */
+    constexpr void M_fill_assign(size_type n, const value_type& val) {
+        if (n > capacity()) {
+            // 1. n比容器的容量要大
+            Vector tmp(n, val);
+            tmp.M_swap_data(this);
+        } else if (n > size()) {
+            // 2. 如果 当前元素个数 < n < 容量
+            // 将前面已有元素重新赋值
+            std::fill(begin(), end(), val);
+            const size_type add = n - size();  // 需要构造的元素个数
+            // 填充后面需要构造的部分
+            this->M_finish =
+                std::uninitialized_fill_n(this->M_finish, add, val);
+        } else {
+            // 3. n < 元素个数
+            // 填充n个元素，将后面元素删除
+            M_erase_at_end(std::fill_n(this->M_start, n, val));
+        }
+    }
     /**
      * @brief 实现指定位置插入对象，并重新内存分配
      * @tparam Args 模板参数包，需要构造的对象的构造函数参数类型
@@ -427,28 +627,10 @@ protected:
                 this->alloc, new_start + elems_before,
                 std::forward<Args>(args)...
             );
-            // 根据是否可移动采取移动或者构造函数
-            if constexpr (std::is_move_constructible_v<Tp>) {
-                // 将原来内存区域的值移动到新区域
-                new_finish =
-                    std::uninitialized_move(old_start, position, new_start);
-                ++new_finish;
-                new_finish =
-                    std::uninitialized_move(position, old_finish, new_finish);
-            } else if constexpr (std::is_copy_constructible_v<Tp>) {
-                // 如果不可移动但是可以复制
-                new_finish =
-                    std::uninitialized_copy(old_start, position, new_start);
-                ++new_finish;
-                new_finish =
-                    std::uninitialized_copy(position, old_finish, new_finish);
-            } else {
-                // 既不可移动也不可复制，则抛出异常
-                throw std::runtime_error(
-                    "M_realloc_insert: The type of the value is unable to copy "
-                    "or move"
-                );
-            }
+            // 调用移动或复制构造函数来进行新内存区域的初始化
+            new_finish = move_or_copy(old_start, position, new_start);
+            ++new_finish;
+            new_finish = move_or_copy(position, old_finish, new_finish);
         } catch (...) {  // 如果移动对象出现了错误
             // 析构当前已经插入的对象
             std::destroy(new_start, new_finish);
