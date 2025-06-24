@@ -29,7 +29,7 @@ struct VectorBase {
     Tp_alloc_type alloc;
 
     pointer M_start;           // 指向开始内存的指针
-    pointer M_finish;          // 指向最后一个有效数据的指针
+    pointer M_finish;          // 指向最后一个有效数据的后一位置的指针
     pointer M_end_of_shorage;  // 指向内存最末尾的指针(不可对其访问)
 
     /**
@@ -88,7 +88,7 @@ struct VectorBase {
      */
     constexpr pointer M_allocate(size_t n) {
         // 当需要分配的元素个数不为0的时候分配内存
-        return n != 0 ? Tr::allocate(alloc, n) : pointer();
+        return n != 0 ? Tr::allocate(alloc, n) : pointer{};
     }
 
     /**

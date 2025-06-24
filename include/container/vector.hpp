@@ -391,6 +391,7 @@ public:
     /**
      * @brief 调整容器大小
      * @param new_size 新的容器大小
+     * @note 如果 @a new_size == @c size() ，则无效
      */
     constexpr void resize(size_type new_size) {
         // 判断新的大小和当前大小的关系
@@ -402,6 +403,30 @@ public:
             M_erase_at_end(this->M_start + new_size);
         }
     }
+
+    /**
+     * @brief 调整容器有效容量大小，并以指定值填充
+     * @param new_size 新的有效容量大小
+     * @param x 填充多出的容量的值
+     * @note 如果 @a new_size == @c size() ，则无效
+     */
+    constexpr void resize(size_type new_size, const value_type x) {
+        if (new_size > size()) {
+            // 如果目标容量大于当前有效容量，则将指定值插入到末尾
+            this->M_fill_insert(end(), new_size - size(), x);
+        } else if (new_size < size()) {
+            // 如果目标容量小于当前有效容量，则消除多余值
+            this->M_erase_at_end(this->M_start + new_size);
+        }
+    }
+
+    /**
+     * @brief 预留 @a n 个元素的容量
+     * @param n 需要的容量大小
+     * @throw std::length_error 如果超出 @c max_size()
+     * @note 如果 @a n 小于当前 @c capability() ， 那么这个函数将不起作用
+     */
+    constexpr void reserve(size_type n) { this->M_reserve(n); }
 
     /**
      * @brief 将新元素插入到容器末尾，传入元素的构造函数所需的参数
@@ -464,7 +489,7 @@ protected:
         // 当前的已有元素个数
         const size_type nsize = this->size();
         // 当前的剩余空间
-        size_type navail =
+        auto navail =
             static_cast<size_type>(this->M_end_of_shorage - this->M_finish);
 
         if (navail >= n) {
@@ -488,13 +513,15 @@ protected:
                 // 析构开始位置
                 destroy_from = new_start + nsize;
                 // 移动或复制填充前面区域
-                move_or_copy(old_start, old_finish, new_start);
+                uninitialized_move_or_copy(old_start, old_finish, new_start);
             } catch (...) {
-                // 将后面的默认构造部分析构
-                std::destroy(destroy_from, destroy_from + n);
-                // 将分配的内存区域释放
-                this->M_deallocate(new_start, len);
-                throw;
+                if (destroy_from != pointer{}) {
+                    // 将后面的默认构造部分析构
+                    std::destroy(destroy_from, destroy_from + n);
+                    // 将分配的内存区域释放
+                    this->M_deallocate(new_start, len);
+                    throw;
+                }
             }
             // 将原来区域析构
             std::destroy(old_start, old_finish);
@@ -504,6 +531,103 @@ protected:
             // 重设指针
             this->M_start = new_start;
             this->M_finish = new_start + nsize + n;
+            this->M_end_of_shorage = new_start + len;
+        }
+    }
+    /**
+     * @brief 在指定位置插入n个x
+     * @param position 插入的位置
+     * @param n 插入的元素个数
+     * @param x 插入的元素引用
+     */
+    constexpr void M_fill_insert(
+        iterator position, const size_type n, const value_type& x
+    ) {
+        if (n == 0) {
+            return;
+        }
+        // 如果空间足够插入n个元素
+        if (static_cast<size_type>(this->M_end_of_shorage - this->M_finish) >=
+            n) {
+            value_type x_copy = x;
+            const size_type elem_after = this->end() - position;
+            pointer old_finish = this->M_finish;
+            if (elem_after > n) {
+                // 当插入位置后面元素大于n的时候，会使得移动之后依然有部分元素在初始化范围内
+                // 像是 [1, 2, 3]，如果在第一位置插入2个0: [0, 0, 1, 2, 3]
+
+                // 先将最后n个元素初始化移动或复制到未初始化区域
+                this->M_finish = uninitialized_move_or_copy(
+                    old_finish - n, old_finish, old_finish
+                );
+                // 将可移动到初始化区域的元素进行移动或复制
+                move_or_copy_backward(position, old_finish - n, old_finish);
+                // 填充插入的元素
+                std::fill_n(position, n, x_copy);
+            } else {
+                // 如果插入位置后面元素个数不大于n,那么所有的后面元素都会移动到未初始化区域
+
+                // 先将部分复制元素填充到末尾
+                this->M_finish = std::uninitialized_fill_n(
+                    old_finish, n - elem_after, x_copy
+                );
+                // 将原来区域内元素移动到未初始化区域
+                this->M_finish = uninitialized_move_or_copy(
+                    position, old_finish, this->M_finish
+                );
+                // 用x填充原来区域内的元素
+                std::fill(position, old_finish, x_copy);
+            }
+        } else {
+            // 如果空间不够插入n个元素
+
+            // 保存原来指针
+            pointer old_start = this->M_start;
+            pointer old_finish = this->M_finish;
+            const pointer pos = position;
+
+            // 新的需要容量
+            const size_type len = this->M_check_len(n, "Vector::M_fill_insert");
+            // 插入位置前有多少元素
+            const size_type elem_before = pos - old_start;
+            // 指向新内存区域的指针
+            pointer new_start = this->M_allocate(len);
+            // 记录新区域的终点
+            pointer new_finish = pointer{};
+            try {
+                // 先将插入的元素填充
+                std::uninitialized_fill_n(new_start + elem_before, n, x);
+                // 将插入位置前部分移动到新区域
+                new_finish =
+                    uninitialized_move_or_copy(old_start, pos, new_start);
+                // 将指针移动到插入部分末尾
+                new_finish += n;
+                // 将插入位置后面部位移动到新区域
+                new_finish =
+                    uninitialized_move_or_copy(pos, old_finish, new_finish);
+            } catch (...) {
+                // 如果发现异常则需析构和释放新内存
+
+                if (new_finish != pointer{}) {
+                    // 如果指向末尾的指针为空,则只析构插入部分元素
+                    std::destroy(
+                        new_start + elem_before, new_start + elem_before + n
+                    );
+                } else {
+                    // 指向末尾指针不为空，则析构范围内的元素
+                    std::destroy(new_start, new_finish);
+                }
+                // 释放内存区域
+                this->M_deallocate(new_start, len);
+                throw;
+            }
+            // 将原来区域元素析构，内存释放
+            std::destroy(old_start, old_finish);
+            this->M_deallocate(old_start, this->M_end_of_shorage - old_start);
+
+            // 重设指针
+            this->M_start = new_start;
+            this->M_finish = new_finish;
             this->M_end_of_shorage = new_start + len;
         }
     }
@@ -570,6 +694,37 @@ protected:
     }
 
     /**
+     * @brief 预留至少n个元素的内存空间
+     * @param n 需要预留的区域需要保留的元素个数
+     * @note 如果n比当前容量小，那么不会做任何工作
+     */
+    constexpr void M_reserve(const size_type n) {
+        if (n > this->max_size()) {  // n超出最大可能分配个数，抛出异常
+            throw std::length_error("Vector::M_reserve");
+        }
+        if (n <= capacity()) {  // n不大于当前容量，不进行操作
+            return;
+        }
+        // 分配新内存区域，记录内存地址
+        pointer new_start = this->M_allocate(n);
+        // 移动或复制原来的数据，并记录结束位置
+        pointer new_finish = uninitialized_move_or_copy(
+            this->M_start, this->M_finish, new_start
+        );
+        // 析构原来区域的元素
+        std::destroy(this->M_start, this->M_finish);
+        // 释放原来区域的内存
+        this->M_deallocate(
+            this->M_start, this->M_end_of_shorage - this->M_start
+        );
+
+        // 重置三个指针
+        this->M_start = new_start;
+        this->M_finish = new_finish;
+        this->M_end_of_shorage = new_start + n;
+    }
+
+    /**
      * @brief 根据传入的值进行初始化
      * @param n 需要初始化的元素个数
      * @param value 初始化的数值
@@ -628,9 +783,11 @@ protected:
                 std::forward<Args>(args)...
             );
             // 调用移动或复制构造函数来进行新内存区域的初始化
-            new_finish = move_or_copy(old_start, position, new_start);
+            new_finish =
+                uninitialized_move_or_copy(old_start, position, new_start);
             ++new_finish;
-            new_finish = move_or_copy(position, old_finish, new_finish);
+            new_finish =
+                uninitialized_move_or_copy(position, old_finish, new_finish);
         } catch (...) {  // 如果移动对象出现了错误
             // 析构当前已经插入的对象
             std::destroy(new_start, new_finish);
